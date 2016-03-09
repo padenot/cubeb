@@ -1538,8 +1538,8 @@ int setup_wasapi_stream(cubeb_stream * stm)
    that WASAPI wants. */
   stm->resampler =
     cubeb_resampler_create(stm,
-                           has_input(stm) ? &stm->input_mix_params : nullptr,
-                           has_output(stm) ? &stm->output_mix_params : nullptr,
+                           has_input(stm) ? &stm->input_stream_params : nullptr,
+                           has_output(stm) ? &stm->output_stream_params : nullptr,
                            target_sample_rate,
                            stm->data_callback,
                            stm->user_ptr,
