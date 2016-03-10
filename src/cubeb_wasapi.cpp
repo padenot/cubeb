@@ -649,8 +649,9 @@ bool get_output_buffer(cubeb_stream * stm, float *& buffer, size_t & frame_count
   if (stm->draining) {
     if (padding_out == 0) {
       stm->state_callback(stm, stm->user_ptr, CUBEB_STATE_DRAINED);
+      return false;
     }
-    return false;
+    return true;
   }
 
   frame_count = stm->output_buffer_frame_count - padding_out;
@@ -751,6 +752,10 @@ refill_callback_output(cubeb_stream * stm)
   if (!rv) {
     return rv;
   }
+  if (stm->draining) {
+    return true;
+  }
+
 
   long got = refill(stm,
                     nullptr,
@@ -1011,7 +1016,9 @@ current_stream_delay(cubeb_stream * stm)
   double cur_pos = static_cast<double>(pos) / freq;
   double max_pos = static_cast<double>(stm->frames_written)  / stm->output_mix_params.rate;
   double delay = max_pos - cur_pos;
-  XASSERT(delay >= 0);
+
+
+  XASSERT(delay >= 0 || stm->draining);
 
   return delay;
 }
