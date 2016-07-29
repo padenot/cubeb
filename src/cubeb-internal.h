@@ -11,6 +11,8 @@
 #include <stdio.h>
 #include <string.h>
 
+void cubeb_crash() __attribute__((analyzer_noreturn));
+
 struct cubeb_ops {
   int (* init)(cubeb ** context, char const * context_name);
   char const * (* get_backend_id)(cubeb * context);
@@ -52,12 +54,11 @@ struct cubeb_ops {
                                              void * user_ptr);
 };
 
-#define XASSERT(expr) do {                                              \
-    if (!(expr)) {                                                      \
+#define XASSERT(expr) do {                                                     \
+    if (!(expr)) {                                                             \
       fprintf(stderr, "%s:%d - fatal error: %s\n", __FILE__, __LINE__, #expr); \
-      *((volatile int *) NULL) = 0;                                     \
-      abort();                                                          \
-    }                                                                   \
+      cubeb_crash();                                                           \
+    }                                                                          \
   } while (0)
 
 #endif /* CUBEB_INTERNAL_0eb56756_4e20_4404_a76d_42bf88cd15a5 */
