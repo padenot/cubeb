@@ -11,7 +11,24 @@
 #include <stdio.h>
 #include <string.h>
 
-void cubeb_crash() __attribute__((analyzer_noreturn));
+#ifndef CLANG_ANALYZER_NORETURN
+#if __has_feature(attribute_analyzer_noreturn)
+#define CLANG_ANALYZER_NORETURN __attribute__((analyzer_noreturn))
+#else
+#define CLANG_ANALYZER_NORETURN
+#endif
+#endif
+
+#if defined(__cplusplus)
+extern "C" {
+#endif
+
+/* Crash the caller.  */
+void cubeb_crash() CLANG_ANALYZER_NORETURN;
+
+#if defined(__cplusplus)
+}
+#endif
 
 struct cubeb_ops {
   int (* init)(cubeb ** context, char const * context_name);
