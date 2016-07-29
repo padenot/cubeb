@@ -11,12 +11,16 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifdef __clang__
 #ifndef CLANG_ANALYZER_NORETURN
 #if __has_feature(attribute_analyzer_noreturn)
 #define CLANG_ANALYZER_NORETURN __attribute__((analyzer_noreturn))
 #else
 #define CLANG_ANALYZER_NORETURN
-#endif
+#endif // ifndef CLANG_ANALYZER_NORETURN
+#endif // __has_feature(attribute_analyzer_noreturn)
+#else // __clang__
+#define CLANG_ANALYZER_NORETURN
 #endif
 
 #if defined(__cplusplus)
