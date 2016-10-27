@@ -239,6 +239,8 @@ public:
        buffer. */
     resampling_in_buffer.pop(nullptr, frames_to_samples(in_len));
 
+	// fprintf(stderr, "Frames still in buffer: %u\n", resampling_in_buffer.length());
+
     return resampling_out_buffer.data();
   }
 
@@ -263,9 +265,13 @@ public:
    * number of output frames will be exactly equal. */
   uint32_t input_needed_for_output(uint32_t output_frame_count)
   {
-    return (uint32_t)roundf((output_frame_count - samples_to_frames(resampling_out_buffer.length()))
-                          * resampling_ratio);
-
+    int32_t unresampled_frames_left = samples_to_frames(resampling_in_buffer.length());
+    int32_t resampled_frames_left = samples_to_frames(resampling_out_buffer.length());
+    float input_frames_needed = output_frame_count - resampled_frames_left - unresampled_frames_left * resampling_ratio;
+    if (input_frames_needed < 0) {
+      return 0;
+    }
+    return (uint32_t)roundf(input_frames_needed);
   }
 
   /** Returns a pointer to the input buffer, that contains empty space for at
