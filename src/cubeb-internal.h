@@ -76,6 +76,8 @@ struct cubeb_ops {
                                              void * user_ptr);
 };
 
+void log_device(cubeb_device_info * device_info);
+
 #define XASSERT(expr) do {                                                     \
     if (!(expr)) {                                                             \
       fprintf(stderr, "%s:%d - fatal error: %s\n", __FILE__, __LINE__, #expr); \

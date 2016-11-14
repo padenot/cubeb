@@ -1402,6 +1402,7 @@ int setup_wasapi_stream_one_side(cubeb_stream * stm,
 {
   com_ptr<IMMDevice> device;
   HRESULT hr;
+  IMMDeviceEnumerator * enumerator;
 
   stm->stream_reset_lock.assert_current_thread_owns();
   bool try_again = false;
@@ -1421,6 +1422,19 @@ int setup_wasapi_stream_one_side(cubeb_stream * stm,
         return CUBEB_ERROR;
       }
     }
+
+    LOG("Settled on a device.");
+    hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL,
+      CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&enumerator));
+    if (FAILED(hr)) {
+      LOG("Could not get device enumerator: %x", hr);
+      return CUBEB_ERROR;
+    }
+
+    
+  //  cubeb_device_info * info = wasapi_create_device(enumerator, device);
+
+    CoTaskMemFree(enumerator);
 
     /* Get a client. We will get all other interfaces we need from
      * this pointer. */
