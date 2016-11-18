@@ -31,6 +31,11 @@ struct user_state_duplex
   bool seen_noise;
 };
 
+float rand_FloatRange(float a, float b)
+{
+  return ((b - a)*((float)rand() / RAND_MAX)) + a;
+}
+
 long data_cb_duplex(cubeb_stream * stream, void * user, const void * inputbuffer, void * outputbuffer, long nframes)
 {
   user_state_duplex * u = reinterpret_cast<user_state_duplex*>(user);
@@ -43,22 +48,22 @@ long data_cb_duplex(cubeb_stream * stream, void * user, const void * inputbuffer
 #endif
   bool seen_noise = false;
 
-  if (stream == NULL || inputbuffer == NULL || outputbuffer == NULL) {
-    return CUBEB_ERROR;
-  }
+//  if (stream == NULL || inputbuffer == NULL || outputbuffer == NULL) {
+//    return CUBEB_ERROR;
+//  }
 
   // Loop back: upmix the single input channel to the two output channels,
   // checking if there is noise in the process.
   long output_index = 0;
   for (long i = 0; i < nframes; i++) {
-    if (ib[i] != SILENT_SAMPLE) {
-      seen_noise = true;
-    }
-    ob[output_index] = ob[output_index + 1] = ib[i];
+    //if (ib[i] != SILENT_SAMPLE) {
+    //  seen_noise = true;
+    //}
+    ob[output_index] = ob[output_index + 1] = rand_FloatRange(-1, 1);
     output_index += 2;
   }
 
-  u->seen_noise |= seen_noise;
+ // u->seen_noise |= seen_noise;
 
   return nframes;
 }
@@ -145,6 +150,8 @@ TEST(cubeb, duplex)
   cubeb_stream_start(stream);
   getchar();
   cubeb_stream_stop(stream);
+
+  getchar();
 
   cubeb_stream_destroy(stream);
   cubeb_destroy(ctx);

@@ -166,7 +166,7 @@ void close_wasapi_stream(cubeb_stream * stm);
 int setup_wasapi_stream(cubeb_stream * stm);
 static char const * wstr_to_utf8(wchar_t const * str);
 static std::unique_ptr<wchar_t const []> utf8_to_wstr(char const * str);
-
+HRESULT get_endpoint(IMMDevice ** device, LPCWSTR devid);
 }
 
 struct cubeb {
@@ -198,6 +198,9 @@ struct cubeb_stream {
   /* The input and output device, or NULL for default. */
   std::unique_ptr<const wchar_t[]> input_device;
   std::unique_ptr<const wchar_t[]> output_device;
+  /* The input and output device that are currently being used. */
+  std::unique_ptr<const wchar_t[]> current_input_device;
+  std::unique_ptr<const wchar_t[]> current_output_device;
   /* The latency initially requested for this stream, in frames. */
   unsigned latency = 0;
   cubeb_state_callback state_callback = nullptr;
@@ -277,6 +280,35 @@ struct cubeb_stream {
   std::atomic<std::atomic<bool>*> emergency_bailout;
 };
 
+char const* devid_to_friendly_name(LPCWSTR devid)
+{
+  IMMDevice * device;
+  HRESULT hr;
+
+  hr = get_endpoint(&device, devid);
+  if (FAILED(hr)) {
+    return nullptr;
+  }
+  IPropertyStore * propstore = NULL;
+  PROPVARIANT propvar;
+  hr = device->OpenPropertyStore(STGM_READ, &propstore);
+  if (FAILED(hr)) {
+    LOG("Could not open the property store when converting from device id to friendly name.");
+    return nullptr;
+  }
+
+  hr = propstore->GetValue(PKEY_Device_FriendlyName, &propvar);
+  if (FAILED(hr)) {
+      return nullptr;
+  }
+
+  char const * rv = wstr_to_utf8(propvar.pwszVal);
+
+  SafeRelease(propstore);
+
+  return std::move(rv);
+}
+
 class wasapi_endpoint_notification_client : public IMMNotificationClient
 {
 public:
@@ -324,13 +356,12 @@ public:
   HRESULT STDMETHODCALLTYPE
   OnDefaultDeviceChanged(EDataFlow flow, ERole role, LPCWSTR device_id)
   {
-    LOG("Audio device default changed.");
-
     /* we only support a single stream type for now. */
     if (flow != eRender && role != eConsole) {
       return S_OK;
     }
 
+    LOG("Audio device default changed (%s).", devid_to_friendly_name(device_id));
     BOOL ok = SetEvent(reconfigure_event);
     if (!ok) {
       LOG("SetEvent on reconfigure_event failed: %lx", GetLastError());
@@ -343,27 +374,75 @@ public:
      log is enabled), for debugging. */
   HRESULT STDMETHODCALLTYPE OnDeviceAdded(LPCWSTR device_id)
   {
-    LOG("Audio device added.");
+    LOG("Audio device added: %s", devid_to_friendly_name(device_id));
     return S_OK;
   };
 
   HRESULT STDMETHODCALLTYPE OnDeviceRemoved(LPCWSTR device_id)
   {
-    LOG("Audio device removed.");
+    LOG("Audio device removed: %s", devid_to_friendly_name(device_id));
     return S_OK;
   }
 
   HRESULT STDMETHODCALLTYPE
   OnDeviceStateChanged(LPCWSTR device_id, DWORD new_state)
   {
-    LOG("Audio device state changed.");
+    const char * state_str;
+    switch (new_state) {
+    case DEVICE_STATE_ACTIVE:
+      state_str = "DEVICE_STATE_ACTIVE";
+      break;
+    case DEVICE_STATE_DISABLED:
+      state_str = "DEVICE_STATE_DISABLED";
+      break;
+    case DEVICE_STATE_NOTPRESENT:
+      state_str = "DEVICE_STATE_NOT_PRESENT";
+      break;
+    case DEVICE_STATE_UNPLUGGED:
+      state_str = "DEVICE_STATE_NOT_UNPLUGGED";
+      break;
+    case DEVICE_STATEMASK_ALL:
+      state_str = "DEVICE_STATEMASK_ALL";
+      break;
+    default:
+      assert(false && "Not handled.");
+    };
+
+    LOG("OnDeviceStateChange %s, new state: %s", devid_to_friendly_name(device_id), state_str);
+
     return S_OK;
   }
 
   HRESULT STDMETHODCALLTYPE
   OnPropertyValueChanged(LPCWSTR device_id, const PROPERTYKEY key)
   {
-    LOG("Audio device property value changed.");
+#if 0
+    IMMDevice * device;
+    HRESULT hr;
+
+    hr = get_endpoint(&device, device_id);
+    if (FAILED(hr)) {
+      return S_OK;
+    }
+    IPropertyStore * propstore = NULL;
+    PROPVARIANT propvar;
+    hr = device->OpenPropertyStore(STGM_READ, &propstore);
+    if (FAILED(hr)) {
+      LOG("Could not open the property store when converting from device id to friendly name.");
+      return S_OK;
+    }
+
+    PropVariantInit(&propvar);
+
+    hr = propstore->GetValue(key, &propvar);
+    if (FAILED(hr)) {
+      return S_OK;
+    }
+
+    LOG("Property value changed for %s: %s", devid_to_friendly_name(device_id), rv);
+
+    SafeRelease(propstore);
+#endif
     return S_OK;
   }
 private:
@@ -1403,6 +1482,7 @@ int setup_wasapi_stream_one_side(cubeb_stream * stm,
   com_ptr<IMMDevice> device;
   HRESULT hr;
   IMMDeviceEnumerator * enumerator;
+  cubeb_device_info * info;
 
   stm->stream_reset_lock.assert_current_thread_owns();
   bool try_again = false;
@@ -1415,26 +1495,17 @@ int setup_wasapi_stream_one_side(cubeb_stream * stm,
         LOG("Could not get %s endpoint, error: %lx\n", DIRECTION_NAME, hr);
         return CUBEB_ERROR;
       }
+      LOG("Trying device %s.", devid);
     } else {
       hr = get_default_endpoint(device, direction);
       if (FAILED(hr)) {
         LOG("Could not get default %s endpoint, error: %lx\n", DIRECTION_NAME, hr);
         return CUBEB_ERROR;
       }
+      LOG("Trying default endpoint");
     }
 
-    LOG("Settled on a device.");
-    hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL,
-      CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&enumerator));
-    if (FAILED(hr)) {
-      LOG("Could not get device enumerator: %x", hr);
-      return CUBEB_ERROR;
-    }
-
-    
-  //  cubeb_device_info * info = wasapi_create_device(enumerator, device);
-
-    CoTaskMemFree(enumerator);
+    LOG("Settled on a device: %s", devid_to_friendly_name(devid));
 
     /* Get a client. We will get all other interfaces we need from
      * this pointer. */
@@ -1457,6 +1528,13 @@ int setup_wasapi_stream_one_side(cubeb_stream * stm,
       try_again = false;
     }
   } while (try_again);
+
+  std::unique_ptr<wchar_t * const> devid = NULL;
+  if (direction == eCapture) {
+    stm->current_input_device.reset(device->GetId());
+  } else {
+    stm->current_output_device.reset(device->GetId());
+  }
 
   /* We have to distinguish between the format the mixer uses,
    * and the format the stream we want to play uses. */
