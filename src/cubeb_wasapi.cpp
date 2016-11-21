@@ -166,7 +166,9 @@ void close_wasapi_stream(cubeb_stream * stm);
 int setup_wasapi_stream(cubeb_stream * stm);
 static char const * wstr_to_utf8(wchar_t const * str);
 static std::unique_ptr<wchar_t const []> utf8_to_wstr(char const * str);
-HRESULT get_endpoint(IMMDevice ** device, LPCWSTR devid);
+HRESULT get_endpoint(com_ptr<IMMDevice> & device, LPCWSTR devid);
+bool has_input(cubeb_stream * stm);
+bool has_output(cubeb_stream * stm);
 }
 
 struct cubeb {
@@ -199,8 +201,8 @@ struct cubeb_stream {
   std::unique_ptr<const wchar_t[]> input_device;
   std::unique_ptr<const wchar_t[]> output_device;
   /* The input and output device that are currently being used. */
-  std::unique_ptr<const wchar_t[]> current_input_device;
-  std::unique_ptr<const wchar_t[]> current_output_device;
+  com_heap_ptr<wchar_t> current_input_device;
+  com_heap_ptr<wchar_t> current_output_device;
   /* The latency initially requested for this stream, in frames. */
   unsigned latency = 0;
   cubeb_state_callback state_callback = nullptr;
@@ -280,18 +282,33 @@ struct cubeb_stream {
   std::atomic<std::atomic<bool>*> emergency_bailout;
 };
 
+int64_t timestamp() 
+{
+  static auto prev = std::chrono::high_resolution_clock::now().time_since_epoch();
+  auto now = std::chrono::high_resolution_clock::now().time_since_epoch();
+  auto diff = now - prev;
+  prev = now;
+
+  return std::chrono::duration_cast<std::chrono::microseconds>(diff).count();
+}
+
 char const* devid_to_friendly_name(LPCWSTR devid)
 {
-  IMMDevice * device;
+  com_ptr<IMMDevice> device;
   HRESULT hr;
 
-  hr = get_endpoint(&device, devid);
+  if (devid) {
+    hr = get_endpoint(device, devid);
+  } else {
+    return "Default device";
+  }
+
   if (FAILED(hr)) {
     return nullptr;
   }
-  IPropertyStore * propstore = NULL;
+  com_ptr<IPropertyStore> propstore;
   PROPVARIANT propvar;
-  hr = device->OpenPropertyStore(STGM_READ, &propstore);
+  hr = device->OpenPropertyStore(STGM_READ, propstore.receive());
   if (FAILED(hr)) {
     LOG("Could not open the property store when converting from device id to friendly name.");
     return nullptr;
@@ -304,10 +321,65 @@ char const* devid_to_friendly_name(LPCWSTR devid)
 
   char const * rv = wstr_to_utf8(propvar.pwszVal);
 
-  SafeRelease(propstore);
-
   return std::move(rv);
 }
+
+class timer_cb
+{
+public:
+  timer_cb() = delete;
+  timer_cb(int milliseconds, std::function<void()> f)
+  : milliseconds(milliseconds)
+  {
+    task = f;
+    thread = nullptr;
+    reset_event = CreateEvent(NULL, 0, 0, NULL);
+  }
+  void start_or_reset()
+  {
+    if (thread) {
+      BOOL ok = SetEvent(reset_event);
+      if (!ok) {
+        LOG("Could not reset event");
+      }
+      return;
+    }
+    thread = new std::thread(&timer_cb::run, this);
+  }
+  void run()
+  {
+      bool wait = true;
+      HANDLE wait_array[1] = {
+        reset_event
+      };
+
+      while (wait) {
+        DWORD waitResult = WaitForMultipleObjects(ARRAY_LENGTH(wait_array),
+                                                  wait_array,
+                                                  FALSE,
+                                                  milliseconds);
+        switch (waitResult) {
+        case WAIT_OBJECT_0 + 0:
+          LOG("Reset timer");
+          wait = true;
+          break;
+        case WAIT_TIMEOUT:
+          LOG("Calling callback");
+          wait = false;
+          task();
+          thread->detach();
+          delete thread;
+          thread = nullptr;
+          break;
+        }
+      }
+  }
+private:
+  int32_t milliseconds;
+  HANDLE reset_event;
+  std::thread* thread;
+  std::function<void()> task;
+};
 
 class wasapi_endpoint_notification_client : public IMMNotificationClient
 {
@@ -345,10 +417,17 @@ public:
     return S_OK;
   }
 
-  wasapi_endpoint_notification_client(HANDLE event)
+  wasapi_endpoint_notification_client(cubeb_stream * stm)
     : ref_count(1)
-    , reconfigure_event(event)
-  { }
+    , stm(stm)
+  {
+    debouncer.reset(new timer_cb(10, [stm]() {
+      BOOL ok = SetEvent(stm->reconfigure_event);
+      if (!ok) {
+        LOG("Could not set reconfigure event");
+      }
+    }));
+  }
 
   virtual ~wasapi_endpoint_notification_client()
   { }
@@ -361,10 +440,13 @@ public:
       return S_OK;
     }
 
-    LOG("Audio device default changed (%s).", devid_to_friendly_name(device_id));
-    BOOL ok = SetEvent(reconfigure_event);
-    if (!ok) {
-      LOG("SetEvent on reconfigure_event failed: %lx", GetLastError());
+    LOG("%ld Audio device default changed (%s). %ld", timestamp(), devid_to_friendly_name(device_id));
+
+    // If this stream is using default input or output, and the
+    // default device changes, re-open the stream with the new devices.
+    if (has_input(stm) && !stm->input_device ||
+        has_output(stm) && !stm->output_device) {
+      debouncer->start_or_reset();
     }
 
     return S_OK;
@@ -374,13 +456,17 @@ public:
      log is enabled), for debugging. */
   HRESULT STDMETHODCALLTYPE OnDeviceAdded(LPCWSTR device_id)
   {
-    LOG("Audio device added: %s", devid_to_friendly_name(device_id));
+    LOG("%ld Audio device added: %s", timestamp(), devid_to_friendly_name(device_id));
+
+    assert(wcscmp(device_id, stm->current_input_device.get()) != 0 ||
+           wcscmp(device_id, stm->current_output_device.get()) != 0 &&
+           "Added a device already in use?!");
     return S_OK;
   };
 
   HRESULT STDMETHODCALLTYPE OnDeviceRemoved(LPCWSTR device_id)
   {
-    LOG("Audio device removed: %s", devid_to_friendly_name(device_id));
+    LOG("%ld Audio device removed : %s", timestamp(), devid_to_friendly_name(device_id));
     return S_OK;
   }
 
@@ -408,7 +494,17 @@ public:
       assert(false && "Not handled.");
     };
 
-    LOG("OnDeviceStateChange %s, new state: %s", devid_to_friendly_name(device_id), state_str);
+    LOG("%ld  OnDeviceStateChange %s, new state: %s", timestamp(), devid_to_friendly_name(device_id), state_str);
+
+    if (new_state == DEVICE_STATE_DISABLED ||
+        new_state == DEVICE_STATE_NOTPRESENT ||
+        new_state == DEVICE_STATE_UNPLUGGED)
+    {
+      if (wcscmp(device_id, stm->current_input_device.get()) == 0 ||
+          wcscmp(device_id, stm->current_output_device.get()) == 0) {
+        debouncer->start_or_reset();
+      }
+    }
 
     return S_OK;
   }
@@ -448,7 +544,9 @@ public:
 private:
   /* refcount for this instance, necessary to implement MSCOM semantics. */
   LONG ref_count;
-  HANDLE reconfigure_event;
+  /* This is always valid for the life time of the notification client. */
+  cubeb_stream * stm;
+  std::unique_ptr<timer_cb> debouncer;
 };
 
 namespace {
@@ -1044,7 +1142,7 @@ HRESULT register_notification_client(cubeb_stream * stm)
     return hr;
   }
 
-  stm->notification_client.reset(new wasapi_endpoint_notification_client(stm->reconfigure_event));
+  stm->notification_client.reset(new wasapi_endpoint_notification_client(stm));
 
   hr = stm->device_enumerator->RegisterEndpointNotificationCallback(stm->notification_client.get());
   if (FAILED(hr)) {
@@ -1081,6 +1179,7 @@ HRESULT unregister_notification_client(cubeb_stream * stm)
 
 HRESULT get_endpoint(com_ptr<IMMDevice> & device, LPCWSTR devid)
 {
+  auto_com com;
   com_ptr<IMMDeviceEnumerator> enumerator;
   HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator),
                                 NULL, CLSCTX_INPROC_SERVER,
@@ -1481,8 +1580,6 @@ int setup_wasapi_stream_one_side(cubeb_stream * stm,
 {
   com_ptr<IMMDevice> device;
   HRESULT hr;
-  IMMDeviceEnumerator * enumerator;
-  cubeb_device_info * info;
 
   stm->stream_reset_lock.assert_current_thread_owns();
   bool try_again = false;
@@ -1529,11 +1626,15 @@ int setup_wasapi_stream_one_side(cubeb_stream * stm,
     }
   } while (try_again);
 
-  std::unique_ptr<wchar_t * const> devid = NULL;
+  wchar_t * tmpdevid = nullptr;
+  hr = FAILED(device->GetId(&tmpdevid));
+  if (hr) {
+    LOG("Can't get the device ID, error, %lx", hr);
+  }
   if (direction == eCapture) {
-    stm->current_input_device.reset(device->GetId());
+    stm->current_input_device.reset(tmpdevid);
   } else {
-    stm->current_output_device.reset(device->GetId());
+    stm->current_output_device.reset(tmpdevid);
   }
 
   /* We have to distinguish between the format the mixer uses,
