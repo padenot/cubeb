@@ -34,4 +34,12 @@ extern cubeb_log_callback g_log_callback PRINTF_FORMAT(1, 2);
     }                                                                        \
   } while(0)
 
+// Asynchronous verbose logging
+#define ALOGV(fmt, ...)                   \
+do {                                      \
+  cubeb_async_log(fmt, ##__VA_ARGS__);    \
+} while(0)
+
+void cubeb_async_log(char * fmt, ...);
+
 #endif // CUBEB_LOG

@@ -29,6 +29,7 @@
 #include "cubeb-internal.h"
 #include "cubeb_resampler.h"
 #include "cubeb_utils.h"
+#include "cubeb_ringbuffer.h"
 
 #ifndef PKEY_Device_FriendlyName
 DEFINE_PROPERTYKEY(PKEY_Device_FriendlyName,    0xa45c254e, 0xdf1c, 0x4efd, 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0, 14);    // DEVPROP_TYPE_STRING
@@ -284,6 +285,8 @@ struct cubeb_stream {
   /* True when we've destroyed the stream. This pointer is leaked on stream
    * destruction if we could not join the thread. */
   std::atomic<std::atomic<bool>*> emergency_bailout;
+  long output_frames = 0;
+  long input_frames = 0;
 };
 
 class wasapi_endpoint_notification_client : public IMMNotificationClient
@@ -706,13 +709,9 @@ refill_callback_duplex(cubeb_stream * stm)
 
   XASSERT(has_input(stm) && has_output(stm));
 
-  rv = get_input_buffer(stm);
-  if (!rv) {
-    return rv;
-  }
-
   input_frames = stm->linear_input_buffer.length() / stm->input_stream_params.channels;
   if (!input_frames) {
+    LOG("No input frames!");
     return true;
   }
 
@@ -737,8 +736,17 @@ refill_callback_duplex(cubeb_stream * stm)
     stm->linear_input_buffer.push_front_silence(padding * stm->input_stream_params.channels);
   }
 
-  LOGV("Duplex callback: input frames: %Iu, output frames: %Iu",
-       stm->linear_input_buffer.length(), output_frames);
+  stm->input_frames += input_frames;
+  stm->output_frames += output_frames;
+
+  if (stm->input_frames != stm->output_frames) {
+     ALOGV("in: %ld, out: %ld", stm->input_frames, stm->output_frames);
+    // fake reclock.
+    stm->input_frames = stm->output_frames;
+  }
+
+
+  ALOGV("Duplex callback: input frames: %Iu, output frames: %Iu", stm->linear_input_buffer.length(), output_frames);
 
   refill(stm,
          stm->linear_input_buffer.data(),
@@ -773,7 +781,7 @@ refill_callback_input(cubeb_stream * stm)
     return true;
   }
 
-  LOGV("Input callback: input frames: %Iu", stm->linear_input_buffer.length());
+  ALOGV("Input callback: input frames: %Iu", stm->linear_input_buffer.length());
 
   long read = refill(stm,
                      stm->linear_input_buffer.data(),
@@ -813,7 +821,7 @@ refill_callback_output(cubeb_stream * stm)
                     output_buffer,
                     output_frames);
 
-  LOGV("Output callback: output frames requested: %Iu, got %ld",
+  ALOGV("Output callback: output frames requested: %Iu, got %ld",
        output_frames, got);
 
   XASSERT(got >= 0);
@@ -854,12 +862,11 @@ wasapi_stream_render_loop(LPVOID stream)
   /* We could consider using "Pro Audio" here for WebAudio and
      maybe WebRTC. */
   mmcss_handle =
-    stm->context->set_mm_thread_characteristics("Audio", &mmcss_task_index);
+    stm->context->set_mm_thread_characteristics("Pro Audio", &mmcss_task_index);
   if (!mmcss_handle) {
     /* This is not fatal, but we might glitch under heavy load. */
     LOG("Unable to use mmcss to bump the render thread priority: %lx", GetLastError());
   }
-
 
   /* WaitForMultipleObjects timeout can trigger in cases where we don't want to
      treat it as a timeout, such as across a system sleep/wake cycle.  Trigger
@@ -935,7 +942,13 @@ wasapi_stream_render_loop(LPVOID stream)
       is_playing = stm->refill_callback(stm);
       break;
     case WAIT_OBJECT_0 + 3: /* input available */
-      if (has_input(stm) && has_output(stm)) { continue; }
+      if (has_input(stm) && has_output(stm)) { 
+        bool rv = get_input_buffer(stm);
+        if (!rv) {
+          return rv;
+        }
+        continue;
+      }
       is_playing = stm->refill_callback(stm);
       break;
     case WAIT_TIMEOUT:

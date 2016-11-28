@@ -82,6 +82,17 @@ void state_cb_duplex(cubeb_stream * stream, void * /*user*/, cubeb_state state)
   return;
 }
 
+void
+CubebLogCallback(const char* aFmt, ...)
+{
+  char buffer[256];
+
+  va_list arglist;
+  va_start(arglist, aFmt);
+  vprintf(aFmt, arglist);
+  va_end(arglist);
+}
+
 TEST(cubeb, duplex)
 {
   cubeb *ctx;
@@ -97,6 +108,8 @@ TEST(cubeb, duplex)
     fprintf(stderr, "Error initializing cubeb library\n");
     ASSERT_EQ(r, CUBEB_OK);
   }
+
+  cubeb_set_log_callback(CUBEB_LOG_VERBOSE, CubebLogCallback);
 
   /* This test needs an available input device, skip it if this host does not
    * have one. */
@@ -128,8 +141,9 @@ TEST(cubeb, duplex)
   }
 
   cubeb_stream_start(stream);
-  delay(500);
+  getchar();
   cubeb_stream_stop(stream);
+  getchar();
 
   cubeb_stream_destroy(stream);
   cubeb_destroy(ctx);

@@ -72,25 +72,27 @@ cubeb_resampler_speex<T, InputProcessor, OutputProcessor>
   , stream(s)
   , data_callback(cb)
   , user_ptr(ptr)
+  , drift_tracker_(input_processor->input_rate(), output_processor->output_rate())
 {
   if (input_processor && output_processor) {
     // Add some delay on the processor that has the lowest delay so that the
     // streams are synchronized.
-    uint32_t in_latency = input_processor->latency();
-    uint32_t out_latency = output_processor->latency();
-    if (in_latency > out_latency) {
-      uint32_t latency_diff = in_latency - out_latency;
-      output_processor->add_latency(latency_diff);
-    } else if (in_latency < out_latency) {
-      uint32_t latency_diff = out_latency - in_latency;
-      input_processor->add_latency(latency_diff);
-    }
+    //uint32_t in_latency = input_processor->latency();
+    //uint32_t out_latency = output_processor->latency();
+    //if (in_latency > out_latency) {
+    //  uint32_t latency_diff = in_latency - out_latency;
+    //  output_processor->add_latency(latency_diff);
+    //} else if (in_latency < out_latency) {
+    //  uint32_t latency_diff = out_latency - in_latency;
+    //  input_processor->add_latency(latency_diff);
+    //}
     fill_internal = &cubeb_resampler_speex::fill_internal_duplex;
   }  else if (input_processor) {
     fill_internal = &cubeb_resampler_speex::fill_internal_input;
   }  else if (output_processor) {
     fill_internal = &cubeb_resampler_speex::fill_internal_output;
   }
+
 }
 
 template<typename T, typename InputProcessor, typename OutputProcessor>
@@ -189,6 +191,7 @@ cubeb_resampler_speex<T, InputProcessor, OutputProcessor>
   /* The number of frames returned from the callback. */
   long got = 0;
 
+
   /* We need to determine how much frames to present to the consumer.
    * - If we have a two way stream, but we're only resampling input, we resample
    * the input to the number of output frames.
@@ -205,6 +208,18 @@ cubeb_resampler_speex<T, InputProcessor, OutputProcessor>
    /* fill directly the input buffer of the output processor to save a copy */
   out_unprocessed =
     output_processor->input_buffer(output_frames_before_processing);
+
+  float estimation = drift_tracker_.fill(*input_frames_count, output_frames_needed);
+  if (estimation != 1.0) {
+    int32_t input_input_buffer = 0;
+    int32_t input_output_buffer = 0;
+    int32_t output_input_buffer = 0;
+    int32_t output_output_buffer = 0;
+    input_processor->buffer_state(input_input_buffer, input_output_buffer);
+    output_processor->buffer_state(output_input_buffer, output_output_buffer);
+    ALOGV("estimation: %f", estimation);
+    ALOGV("input[in:%d,out:%d], output[in:%d,out:%d]", input_input_buffer, input_output_buffer, output_input_buffer, output_output_buffer);
+  }
 
   if (in_buffer) {
     /* process the input, and present exactly `output_frames_needed` in the
