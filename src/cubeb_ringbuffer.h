@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <atomic>
 #include <algorithm>
+#include <type_traits>
 #include "cubeb_utils.h"
 
 /* This enum allow choosing the behaviour of the queue. */
