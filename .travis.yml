@@ -8,9 +8,9 @@ matrix:
     - compiler: clang
       env: SCAN_BUILD=true
       os: linux
-    - compiler: gcc
+    - compiler: gcc-5
       os: linux
-    - compiler: gcc
+    - compiler: gcc-5
       env: HOST=i686-w64-mingw32
       os: linux
     - compiler: clang
@@ -19,6 +19,7 @@ matrix:
       env: SCAN_BUILD=true
       os: osx
     - env: ANDROID=android-ndk-r13b
+      compiler: gcc-5
       os: linux
 before_install:
   - if [[ -n $SCAN_BUILD ]]; then
@@ -79,5 +80,7 @@ addons:
     sources:
       - ubuntu-toolchain-r-test
     packages:
+      - gcc-5
+      - g++-5
       - clang-3.8
       - libc++-dev
