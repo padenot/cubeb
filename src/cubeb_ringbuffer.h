@@ -106,9 +106,6 @@ public:
     /* One more element to distinguish from emtpy and full buffer. */
     , capacity_(capacity + 1)
   {
-    static_assert(std::is_trivially_copyable<T>::value,
-                  "ring_buffer_base requires trivial type");
-
     assert(storage_capacity() <
            std::numeric_limits<RingBufferIndex>::max() &&
            "buffer to large for the type of index used.");
