@@ -171,11 +171,11 @@ public:
     int second_part = to_write - first_part;
 
     if (elements) {
-      PodCopy(data_.get() + wr_idx, elements, first_part);
-      PodCopy(data_.get(), elements + first_part, second_part);
+      Copy(data_.get() + wr_idx, elements, first_part);
+      Copy(data_.get(), elements + first_part, second_part);
     } else {
-      PodZero(data_.get() + wr_idx, first_part);
-      PodZero(data_.get(), second_part);
+      ConstructDefault(data_.get() + wr_idx, first_part);
+      ConstructDefault(data_.get(), second_part);
     }
 
     increment_index(wr_idx, to_write);
@@ -210,8 +210,8 @@ public:
     int second_part = to_read - first_part;
 
     if (elements) {
-      PodCopy(elements, data_.get() + rd_idx, first_part); 
-      PodCopy(elements + first_part, data_.get(), second_part);
+      Copy(elements, data_.get() + rd_idx, first_part);
+      Copy(elements + first_part, data_.get(), second_part);
     }
 
     increment_index(rd_idx, to_read);
