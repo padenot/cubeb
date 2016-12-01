@@ -13,9 +13,6 @@
 
 #define NELEMS(x) ((int) (sizeof(x) / sizeof(x[0])))
 
-cubeb_log_level g_log_level;
-cubeb_log_callback g_log_callback;
-
 struct cubeb {
   struct cubeb_ops * ops;
 };

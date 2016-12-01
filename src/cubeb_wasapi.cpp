@@ -736,8 +736,8 @@ refill_callback_duplex(cubeb_stream * stm)
     stm->linear_input_buffer.push_front_silence(padding * stm->input_stream_params.channels);
   }
 
-  LOGV("Duplex callback: input frames: %Iu, output frames: %Iu",
-       stm->linear_input_buffer.length(), output_frames);
+  ALOGV("Duplex callback: input frames: %Iu, output frames: %Iu",
+        stm->linear_input_buffer.length(), output_frames);
 
   refill(stm,
          stm->linear_input_buffer.data(),
@@ -772,7 +772,7 @@ refill_callback_input(cubeb_stream * stm)
     return true;
   }
 
-  LOGV("Input callback: input frames: %Iu", stm->linear_input_buffer.length());
+  ALOGV("Input callback: input frames: %Iu", stm->linear_input_buffer.length());
 
   long read = refill(stm,
                      stm->linear_input_buffer.data(),
@@ -812,8 +812,8 @@ refill_callback_output(cubeb_stream * stm)
                     output_buffer,
                     output_frames);
 
-  LOGV("Output callback: output frames requested: %Iu, got %ld",
-       output_frames, got);
+  ALOGV("Output callback: output frames requested: %Iu, got %ld",
+        output_frames, got);
 
   XASSERT(got >= 0);
   XASSERT(got == output_frames || stm->draining);
