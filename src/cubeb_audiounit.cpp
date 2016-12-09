@@ -267,11 +267,11 @@ audiounit_render_input(cubeb_stream * stm,
   stm->input_linear_buffer->push(input_buffer_list.mBuffers[0].mData,
                                  input_frames * stm->input_desc.mChannelsPerFrame);
 
-  ALOGV("(%p) input:  buffers %d, size %d, channels %d, frames %d.",
-        stm, input_buffer_list.mNumberBuffers,
-        input_buffer_list.mBuffers[0].mDataByteSize,
-        input_buffer_list.mBuffers[0].mNumberChannels,
-        input_frames);
+  //ALOGV("(%p) input:  buffers %d, size %d, channels %d, frames %d.",
+  //      stm, input_buffer_list.mNumberBuffers,
+  //      input_buffer_list.mBuffers[0].mDataByteSize,
+  //      input_buffer_list.mBuffers[0].mNumberChannels,
+  //      input_frames);
 
   /* Advance input frame counter. */
   assert(input_frames > 0);
@@ -375,10 +375,10 @@ audiounit_output_callback(void * user_ptr,
 
   stm->output_callback_in_a_row++;
 
-  ALOGV("(%p) output: buffers %d, size %d, channels %d, frames %d.",
-        stm, outBufferList->mNumberBuffers,
-        outBufferList->mBuffers[0].mDataByteSize,
-        outBufferList->mBuffers[0].mNumberChannels, output_frames);
+  //ALOGV("(%p) output: buffers %d, size %d, channels %d, frames %d.",
+  //      stm, outBufferList->mNumberBuffers,
+  //      outBufferList->mBuffers[0].mDataByteSize,
+  //      outBufferList->mBuffers[0].mNumberChannels, output_frames);
 
   long outframes = 0, input_frames = 0;
   void * output_buffer = NULL, * input_buffer = NULL;
@@ -409,8 +409,8 @@ audiounit_output_callback(void * user_ptr,
       uint32_t min_input_frames_required = ceilf(stm->input_hw_rate / stm->output_hw_rate *
                                                                       stm->input_buffer_frames);
       stm->input_linear_buffer->push_silence(min_input_frames_required * stm->input_desc.mChannelsPerFrame);
-      LOG("(%p) %s pushed %u frames of input silence.", stm, stm->frames_read == 0 ? "Input hasn't started," :
-          stm->switching_device ? "Device switching," : "Drop out,", min_input_frames_required);
+      ALOGV("(%p) %s pushed %u frames of input silence.", stm, stm->frames_read == 0 ? "Input hasn't started," :
+            stm->switching_device ? "Device switching," : "Drop out,", min_input_frames_required);
     }
     // The input buffer
     input_buffer = stm->input_linear_buffer->data();
