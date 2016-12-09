@@ -104,12 +104,19 @@ TEST(cubeb, duplex)
     return;
   }
 
+  uint32_t rate;
+  r = cubeb_get_preferred_sample_rate(ctx, &rate);
+  if (r != CUBEB_OK) {
+    fprintf(stderr, "Could not get minimal latency\n");
+    ASSERT_EQ(r, CUBEB_OK);
+  }
+
   /* typical user-case: mono input, stereo output, low latency. */
   input_params.format = STREAM_FORMAT;
-  input_params.rate = 48000;
+  input_params.rate = rate;
   input_params.channels = 1;
   output_params.format = STREAM_FORMAT;
-  output_params.rate = 48000;
+  output_params.rate = rate;
   output_params.channels = 2;
 
   r = cubeb_get_min_latency(ctx, output_params, &latency_frames);
@@ -128,7 +135,7 @@ TEST(cubeb, duplex)
   }
 
   cubeb_stream_start(stream);
-  delay(500);
+  getchar();
   cubeb_stream_stop(stream);
 
   cubeb_stream_destroy(stream);
