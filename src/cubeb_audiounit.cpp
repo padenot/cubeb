@@ -267,11 +267,11 @@ audiounit_render_input(cubeb_stream * stm,
   stm->input_linear_buffer->push(input_buffer_list.mBuffers[0].mData,
                                  input_frames * stm->input_desc.mChannelsPerFrame);
 
-  LOGV("(%p) input:  buffers %d, size %d, channels %d, frames %d.",
-       stm, input_buffer_list.mNumberBuffers,
-       input_buffer_list.mBuffers[0].mDataByteSize,
-       input_buffer_list.mBuffers[0].mNumberChannels,
-       input_frames);
+  ALOGV("(%p) input:  buffers %d, size %d, channels %d, frames %d.",
+        stm, input_buffer_list.mNumberBuffers,
+        input_buffer_list.mBuffers[0].mDataByteSize,
+        input_buffer_list.mBuffers[0].mNumberChannels,
+        input_frames);
 
   /* Advance input frame counter. */
   assert(input_frames > 0);
@@ -375,10 +375,10 @@ audiounit_output_callback(void * user_ptr,
 
   stm->output_callback_in_a_row++;
 
-  LOGV("(%p) output: buffers %d, size %d, channels %d, frames %d.",
-       stm, outBufferList->mNumberBuffers,
-       outBufferList->mBuffers[0].mDataByteSize,
-       outBufferList->mBuffers[0].mNumberChannels, output_frames);
+  ALOGV("(%p) output: buffers %d, size %d, channels %d, frames %d.",
+        stm, outBufferList->mNumberBuffers,
+        outBufferList->mBuffers[0].mDataByteSize,
+        outBufferList->mBuffers[0].mNumberChannels, output_frames);
 
   long outframes = 0, input_frames = 0;
   void * output_buffer = NULL, * input_buffer = NULL;
