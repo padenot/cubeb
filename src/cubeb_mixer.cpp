@@ -64,13 +64,36 @@
 static cubeb_channel_layout
 cubeb_channel_layout_check(cubeb_channel_layout l, uint32_t c)
 {
-    if (l == CUBEB_LAYOUT_UNDEFINED) {
-      switch (c) {
-        case 1: return CUBEB_LAYOUT_MONO;
-        case 2: return CUBEB_LAYOUT_STEREO;
+  if (l == CUBEB_LAYOUT_UNDEFINED) {
+    switch (c) {
+      case 1:
+        l = CUBEB_LAYOUT_MONO;
+        break;
+      case 2:
+        l = CUBEB_LAYOUT_STEREO;
+        break;
+      default: {
+        // If the layout is undefined, map channels in the order they
+        // come in.
+        if (l == CUBEB_LAYOUT_UNDEFINED) {
+          uint32_t mask = 1;
+          for (uint32_t i = 0; i < c; i++) {
+            mask = mask | 2 << i;
+          }
+          l = mask;
+        }
       }
     }
-    return l;
+  } else if (c > 2 && c != cubeb_channel_layout_nb_channels(l)) {
+    // Workaround: if we find our layout does not have a location for
+    // some channels, play them in the order they come in.
+    uint32_t mask = 1;
+    for (uint32_t i = 0; i < c; i++) {
+      mask = mask | 2 << i;
+    }
+    l = mask;
+  }
+  return l;
 }
 
 unsigned int cubeb_channel_layout_nb_channels(cubeb_channel_layout x)
@@ -98,8 +121,9 @@ struct MixerContext {
     , _in_ch_count(in_channels)
     , _out_ch_count(out_channels)
   {
-    if (in_channels != cubeb_channel_layout_nb_channels(in) ||
-        out_channels != cubeb_channel_layout_nb_channels(out)) {
+
+    if (in_channels != cubeb_channel_layout_nb_channels(_in_ch_layout) ||
+        out_channels != cubeb_channel_layout_nb_channels(_out_ch_layout)) {
       // Mismatch between channels and layout, aborting.
       return;
     }
