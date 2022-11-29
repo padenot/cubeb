@@ -115,14 +115,18 @@ cubeb_log_internal(char const * file, uint32_t line, char const * fmt, ...)
   va_start(args, fmt);
   char msg[CUBEB_LOG_MESSAGE_MAX_SIZE];
   vsnprintf(msg, CUBEB_LOG_MESSAGE_MAX_SIZE, fmt, args);
-  g_cubeb_log_callback.load()("%s:%d:%s", file, line, msg);
+  if (g_cubeb_log_callback) {
+    g_cubeb_log_callback.load()("%s:%d:%s", file, line, msg);
+  }
   va_end(args);
 }
 
 void
 cubeb_log_internal_no_format(const char * msg)
 {
-  g_cubeb_log_callback.load()(msg);
+  if (g_cubeb_log_callback) {
+    g_cubeb_log_callback.load()(msg);
+  }
 }
 
 void
